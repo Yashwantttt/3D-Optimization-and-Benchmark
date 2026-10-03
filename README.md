@@ -12,7 +12,7 @@ The long-term goal is to use this environment as a controlled benchmark for eval
 ## Live Demo
 
 **Live Demo:**  
-https://YOUR-USERNAME.github.io/YOUR-REPOSITORY/
+https://yashwantttt.github.io/3D-Optimization-and-Benchmark/
 
 > The live demo is hosted using GitHub Pages.
 
