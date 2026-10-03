@@ -1,31 +1,3 @@
-/* =====================================================================
-   THREE.JS FOREST PERFORMANCE BENCHMARK
-   ---------------------------------------------------------------------
-   A reusable framework for comparing rendering optimization techniques
-   (InstancedMesh, LOD, frustum / distance culling, texture quality,
-   object pooling, shadow optimization) on a procedurally generated forest.
-
-   FILE MAP
-     0. CONFIGURATION ........ every value you may want to change
-     1. STATE & HELPERS
-     2. UI ................... dashboard creation / wiring
-     3. SCENE ................ renderer, scene, lights, ground, camera
-     4. SHADOWS .............. baseline vs optimized shadow profile
-     5. ASSET LOADING ........ GLB loading, LOD fallback, placeholders
-     6. LAYOUT ............... deterministic (seeded) placement
-     7. FOREST LAYERS ........ InstancedMesh / Mesh / LOD builders + pool
-     8. OPTIMIZATIONS ........ one clearly separated section per technique
-     9. PERFORMANCE MONITOR .. measurement code (no scene logic in here)
-    10. BENCHMARK ............ fixed-camera, repeatable test runs
-    11. MAIN LOOP & init()
-
-   HOW TO ADD A NEW OPTIMIZATION
-     1. add a key to state.opt
-     2. write applyMyThing() in section 8 (it reads state.opt.myThing)
-     3. add { key, label, info, apply: applyMyThing } to OPTIMIZATIONS
-   The checkbox, mode badge and CSV export pick it up automatically.
-   ===================================================================== */
-
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -33,19 +5,13 @@ import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 
-/* =====================================================================
-   0. CONFIGURATION  (edit these - nothing else needs to change)
-   ===================================================================== */
-
-// ---- Model files. Replace these paths with your own Blender exports (.glb or .gltf).
 const ASSET_PATHS = {
   tree:  "assets/tree.glb",
   grass: "assets/grass.glb",
   rock:  "assets/rock.glb"
 };
 
-// ---- Optional separate LOD models (high = LOD0, medium = LOD1, low = LOD2).
-// If a file is missing, that level is generated automatically (see AUTO_LOD).
+
 const TREE_LOD_PATHS = {
   high:   "assets/tree_LOD0.glb",
   medium: "assets/tree_LOD1.glb",
@@ -53,64 +19,41 @@ const TREE_LOD_PATHS = {
 };
 const LOD_PATHS = { tree: TREE_LOD_PATHS, grass: null, rock: null };
 
-// Which asset types take part in LOD. Grass blades are tiny, so they are off by default.
-// Set a type to true (and optionally give it paths above) to LOD it as well.
 const LOD_ENABLED_FOR = { tree: true, grass: false, rock: false };
 
-// LOD switch distances (world units from the camera):
-//   distance <  high   -> LOD0 (high detail)
-//   distance <  medium -> LOD1 (medium detail)
-//   distance >= medium -> LOD2 (low detail)
-//   `low` is the far end of LOD2. Objects beyond it keep using LOD2 unless
-//   LOD_HIDE_BEYOND_LOW is true. (Hiding is really *culling* - use the Distance
-//   Culling checkbox for experiments so the two techniques stay separate.)
 const LOD_DISTANCES = {
-  high: 30,
-  medium: 50,
-  low: 100
+  high: 50,
+  medium: 100,
+  low: 120
 };
 const LOD_HIDE_BEYOND_LOW = false;
 
-// Fallback when only ONE model exists for an LOD-enabled type:
-//   'simplify' -> LOD1/LOD2 are made once at load time with SimplifyModifier
-//   'reuse'    -> LOD1/LOD2 share LOD0's geometry (architecture works, no triangle savings)
-// Parts with more vertices than maxVerticesPerPart are not simplified (too slow in JS).
 const AUTO_LOD = {
   mode: 'simplify',
   ratios: { medium: 0.5, low: 0.15 },   // fraction of vertices kept
   maxVerticesPerPart: 15000
 };
 
-// ---- Distance culling: objects farther than this from the camera are not rendered.
 const MAX_RENDER_DISTANCE = 150;
 
-// ---- Texture quality.
-// For each asset type you may give three texture files. They replace the model's
-// base-colour texture ("map") when that quality level is selected.
-// Use `null` (or leave a file out) to fall back to automatically down-scaling the
-// textures embedded in the GLB. Down-scaling happens ONCE when the setting changes.
 const TEXTURE_SETTINGS = {
   tree:  { high: "assets/textures/tree_2k.jpg", medium: "assets/textures/tree_1k.jpg", low: "assets/textures/tree_512.jpg" },
   grass: null,
   rock:  null
 };
-// Largest texture side (pixels) for each level when auto down-scaling is used.
+
 const TEXTURE_MAX_SIZE = { high: 2048, medium: 1024, low: 512 };
 const TEXTURE_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'];
 
-// ---- If a model fails to load, show an error and continue with a built-in placeholder.
+
 const USE_PLACEHOLDER_ON_FAILURE = true;
 
-// ---- Optional automatic fitting of your models (all off by default = models used as exported).
-//   targetHeight  : uniformly scale the model so it is this tall (world units)
-//   alignToGround : shift the model so its lowest point sits at y = 0
 const ASSET_FIT = {
   tree:  { targetHeight: null, alignToGround: false },
   grass: { targetHeight: null, alignToGround: false },
   rock:  { targetHeight: null, alignToGround: false }
 };
 
-// ---- Deterministic layout. Same seed => identical forest every time and in every mode.
 const RANDOM_SEED = 20240601;
 const WORLD_SIZE = 400;                  // forest covers WORLD_SIZE x WORLD_SIZE units, centred on origin
 const PLACEMENT = {
@@ -122,14 +65,12 @@ const PLACEMENT = {
 
 // ---- Sliders (key must be tree / grass / rock).
 const SCENE_SLIDERS = [
-  { key: 'tree',  label: 'Trees', max: 10000,  step: 100,  initial: 2500 },
-  { key: 'grass', label: 'Grass', max: 100000, step: 1000, initial: 20000 },
-  { key: 'rock',  label: 'Rocks', max: 5000,   step: 50,   initial: 500 }
+  { key: 'tree',  label: 'Trees', max: 10000,  step: 100,  initial: 1000 },
+  { key: 'grass', label: 'Grass', max: 100000, step: 1000, initial: 2000 },
+  { key: 'rock',  label: 'Rocks', max: 5000,   step: 50,   initial: 200 }
 ];
-const SLIDER_DEBOUNCE_MS = 200;          // wait this long after the last slider change before rebuilding
+const SLIDER_DEBOUNCE_MS = 200;          
 
-// ---- What the "Optimized" button switches on. It deliberately does NOT enable everything:
-//      texture quality changes visual quality and object pooling does not change FPS.
 const OPTIMIZED_PRESET = ['instancedMesh', 'lod', 'frustumCulling', 'distanceCulling', 'shadowOptimization'];
 
 // ---- Benchmark
@@ -141,7 +82,7 @@ const BENCHMARK_CAMERA = {               // identical camera path for every run
 
 // ---- Camera / renderer / look
 const CAMERA_START = { position: [55, 22, 70], target: [0, 4, 0], fov: 60, near: 0.5, far: 1200 };
-const RENDERER_SETTINGS = { antialias: false, maxPixelRatio: 1 };   // cheap on low-end GPUs
+const RENDERER_SETTINGS = { antialias: false, maxPixelRatio: 1 };   
 const FOG = { color: 0xa9c9e0, near: 60, far: 170 };
 const SUN_DIRECTION = new THREE.Vector3(0.5, 0.8, 0.35).normalize();
 const SUN_DISTANCE = 300;
@@ -160,16 +101,8 @@ const SHADOW_SETTINGS = {
   }
 };
 
-// ---- Performance-sensitive implementation switches (document these in your paper)
-// If true, scene matrices are computed once instead of every frame. The forest is static, so this
-// removes pure CPU overhead from ALL modes equally. Set false to measure the naive per-frame cost.
 const FREEZE_STATIC_MATRICES = true;
-// If true, Three.js' built-in per-object frustum culling is switched off so the
-// "Frustum Culling" checkbox is the ONLY culling that happens (clean experiments).
-// Set false to leave Three.js' default culling on for normal Meshes.
 const DISABLE_BUILTIN_FRUSTUM_CULLING = true;
-// Culling / LOD classification runs at most this often (ms) and only when the camera moved.
-// 0 = every frame while the camera moves.
 const CULL_UPDATE_INTERVAL_MS = 50;
 const CULL_RADIUS_MARGIN = 1.15;         // safety margin on bounding spheres
 
@@ -180,9 +113,7 @@ const FPS_HISTORY_SECONDS = 60;          // length of the FPS graph
 const PAUSE_THRESHOLD_MS = 1000;         // frame gaps longer than this (background tab) are ignored
 
 
-/* =====================================================================
-   1. STATE & HELPERS
-   ===================================================================== */
+//1. STATE & HELPERS
 
 const ASSET_TYPES = ['tree', 'grass', 'rock'];
 
@@ -235,11 +166,7 @@ function mulberry32(seed) {
   };
 }
 
-/**
- * Reusable object pool. Pooling keeps released objects alive so the next rebuild can
- * reuse them instead of allocating new ones (less garbage-collector work, faster rebuilds).
- * It does NOT change steady-state FPS - it changes rebuild time and memory churn.
- */
+
 class ObjectPool {
   constructor() { this.free = new Map(); this.created = 0; this.reused = 0; }
   acquire(key, factory, isUsable) {
@@ -268,11 +195,8 @@ class ObjectPool {
 const pool = new ObjectPool();
 
 
-/* =====================================================================
-   2. UI
-   ===================================================================== */
+//2. UI
 
-// Registry of optimization techniques. Each `apply` function lives in section 8.
 const OPTIMIZATIONS = [
   { key: 'instancedMesh',      label: 'InstancedMesh',      apply: applyInstancedMesh,
     info: 'One draw call per mesh part for all copies. Off = one THREE.Mesh per object.' },
@@ -441,9 +365,7 @@ function renderAssetStatus() {
 }
 
 
-/* =====================================================================
-   3. SCENE  (renderer, scene, lights, ground, camera)
-   ===================================================================== */
+//3. SCENE  (renderer, scene, lights, ground, camera)
 
 function createRenderer() {
   renderer = new THREE.WebGLRenderer({ antialias: RENDERER_SETTINGS.antialias, powerPreference: 'high-performance' });
@@ -519,11 +441,7 @@ function onResize() {
 }
 
 
-/* =====================================================================
-   4. SHADOWS
-   Shadow maps are expensive: every shadow caster is drawn a second time from the
-   light's point of view. The "Shadow Optimization" profile reduces that work.
-   ===================================================================== */
+//4. SHADOWS
 
 const shadowState = { profile: null, x: Infinity, z: Infinity };
 
@@ -594,12 +512,7 @@ function applyObjectFlags(layer) {
 }
 
 
-/* =====================================================================
-   5. ASSET LOADING
-   Each model is loaded ONCE. Its geometry + material are then shared by every
-   instance / mesh, whatever the rendering mode. A model may contain several
-   meshes ("parts", e.g. trunk + leaves); each part keeps its own material.
-   ===================================================================== */
+//5. ASSET LOADING
 
 const gltfLoader = new GLTFLoader();
 const loadProgress = new Map();       // url -> 0..1
@@ -703,10 +616,7 @@ function countTriangles(parts) {
 function makeLevel(parts) { return { parts, triangles: countTriangles(parts) }; }
 function sharePart(p) { return { geometry: p.geometry, material: p.material, matrix: p.matrix.clone() }; }
 
-/**
- * Builds the three LOD levels for an asset type.
- * Order of preference per level: your LOD file -> placeholder LOD -> auto-simplified -> shared geometry.
- */
+
 function buildLodLevels(info, lodResults) {
   const levels = [];
   const sources = [];
@@ -867,13 +777,7 @@ function placeholderRock(detail) {
 }
 
 
-/* =====================================================================
-   6. LAYOUT  (deterministic placement)
-   Positions come from a seeded PRNG, one stream per asset type. The i-th object
-   is always the same, so raising the slider only ADDS objects and changing a
-   technique never moves anything. A spatial hash rejects spots that are too
-   close to an existing object (no overlaps, no grid pattern).
-   ===================================================================== */
+//6. LAYOUT  (deterministic placement)
 
 function ensureLayout(type, count) {
   let L = layouts[type];
@@ -926,13 +830,7 @@ function addPlacement(L) {
 }
 
 
-/* =====================================================================
-   7. FOREST LAYERS
-   One "layer" per asset type. A layer is built either as
-     - 'instanced': InstancedMesh objects (one per mesh part, per LOD level), or
-     - 'mesh'     : one THREE.Mesh / Group / LOD per placement.
-   Both use the same placement matrices, so the forest looks identical.
-   ===================================================================== */
+//7. FOREST LAYERS
 
 function createForest() {
   for (const type of ASSET_TYPES) layers[type] = createLayer(type);
@@ -1187,11 +1085,10 @@ function finishRebuild() {
 }
 
 
-/* =====================================================================
-   8. OPTIMIZATIONS
+/*8. OPTIMIZATIONS
    Each technique has its own apply function (called when its checkbox changes)
    and, where it runs every frame, its own update function.
-   ===================================================================== */
+ */
 
 async function setOptimization(key, value) {
   state.opt[key] = value;
@@ -1304,11 +1201,7 @@ function rememberCamera() {
   for (let i = 0; i < 16; i++) visState.camMatrix[i] = e[i];
 }
 
-/**
- * Re-classifies instances (visible? which LOD level?). It is skipped while the camera is
- * still, and throttled by CULL_UPDATE_INTERVAL_MS while it moves. This CPU work is a real
- * cost of culling/LOD and is included in the measured frame times.
- */
+
 function updateVisibility(now, force = false) {
   const layerList = ASSET_TYPES.map(t => layers[t]).filter(Boolean);
   if (!layerList.length) return;
@@ -1563,11 +1456,7 @@ function applyShadowOptimization() {
 }
 
 
-/* =====================================================================
-   9. PERFORMANCE MONITOR
-   Pure measurement: it knows nothing about the scene. It only receives
-   frame timestamps and reads renderer.info.
-   ===================================================================== */
+//9. PERFORMANCE MONITOR
 
 class PerformanceMonitor {
   constructor() {
@@ -1578,7 +1467,6 @@ class PerformanceMonitor {
     this.reset();
   }
 
-  /** Starts a fresh test: clears average / minimum / worst values. The graph history is kept. */
   reset() {
     this.head = 0; this.count = 0; this.windowSum = 0;
     this.frames = 0; this.elapsed = 0;
@@ -1586,7 +1474,7 @@ class PerformanceMonitor {
     this.lastT = null;
   }
 
-  /** Call once per frame. Returns the frame duration in ms, or null if the frame was ignored. */
+
   recordFrame(now, cpuMs) {
     if (this.lastT === null) { this.lastT = now; return null; }
     const dt = now - this.lastT;
@@ -1690,11 +1578,8 @@ function drawFpsGraph() {
 }
 
 
-/* =====================================================================
-   10. BENCHMARK
-   A run = warm-up (not recorded) + measured period, on a fixed camera path,
-   with all controls locked so nothing else can change mid-test.
-   ===================================================================== */
+//10. BENCHMARK
+
 
 const benchmark = {
   running: false, phase: 'idle', startT: null, measureT0: 0,
@@ -1858,11 +1743,8 @@ function downloadCsv() {
 }
 
 
-/* =====================================================================
-   11. MAIN LOOP & init()
-   ===================================================================== */
+//11. MAIN LOOP & init()
 
-/** Camera: free OrbitControls normally, a fixed repeatable orbit during a benchmark. */
 function updateCamera(now) {
   if (benchmark.running) {
     if (state.useBenchmarkCameraPath) {

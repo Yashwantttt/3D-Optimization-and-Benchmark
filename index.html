@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Three.js Forest Benchmark</title>
   <link rel="stylesheet" href="style.css">
-
-  <!-- Import map: lets main.js use  import ... from 'three'  and  'three/addons/...'
-       The version is pinned so every experiment uses the exact same Three.js build
-       (important for reproducible research). Change both URLs together to upgrade. -->
   <script type="importmap">
   {
     "imports": {
@@ -20,7 +16,6 @@
 </head>
 <body>
 
-  <!-- The WebGL canvas is appended here by main.js -->
   <div id="canvas-container"></div>
 
   <!-- ============ Loading screen ============ -->
@@ -61,7 +56,7 @@
       <div id="asset-status" class="asset-status"></div>
     </section>
 
-    <!-- C. OPTIMIZATION TECHNIQUES (checkboxes are generated from the OPTIMIZATIONS list in main.js) -->
+    <!-- C. OPTIMIZATION TECHNIQUES -->
     <section>
       <h3>Optimization Techniques</h3>
       <div id="opt-list"></div>

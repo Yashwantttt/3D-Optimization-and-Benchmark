@@ -1,9 +1,3 @@
-/* =====================================================================
-   Forest Benchmark - dashboard styling
-   The 3D canvas fills the screen; the dashboard floats on top of it and
-   scrolls on its own, so it never covers the whole viewport.
-   ===================================================================== */
-
 :root {
   --panel: rgba(15, 19, 26, 0.9);
   --panel-solid: #0f131a;
