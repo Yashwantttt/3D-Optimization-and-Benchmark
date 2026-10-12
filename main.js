@@ -6,7 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 
 /* =====================================================================
-   0. CONFIGURATION  (edit these - nothing else needs to change)
+   0. CONFIGURATION  
    ===================================================================== */
 
 const ASSET_PATHS = {
@@ -24,7 +24,7 @@ const LOD_PATHS = { tree: TREE_LOD_PATHS, grass: null, rock: null };
 const LOD_ENABLED_FOR = { tree: true, grass: false, rock: false };
 
 const LOD_DISTANCES = {
-  high: 20,
+  high: 30,
   medium: 90,
   low: 120
 };
@@ -65,8 +65,8 @@ const PLACEMENT = {
 };
 
 const SCENE_SLIDERS = [
-  { key: 'tree',  label: 'Trees', max: 10000,  step: 100,  initial: 2500 },
-  { key: 'grass', label: 'Grass', max: 100000, step: 1000, initial: 20000 },
+  { key: 'tree',  label: 'Trees', max: 10000,  step: 100,  initial: 1500 },
+  { key: 'grass', label: 'Grass', max: 100000, step: 1000, initial: 15000 },
   { key: 'rock',  label: 'Rocks', max: 5000,   step: 50,   initial: 500 }
 ];
 const SLIDER_DEBOUNCE_MS = 200;          
