@@ -5,12 +5,15 @@ import { SimplifyModifier } from 'three/addons/modifiers/SimplifyModifier.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 
+/* =====================================================================
+   0. CONFIGURATION  (edit these - nothing else needs to change)
+   ===================================================================== */
+
 const ASSET_PATHS = {
   tree:  "assets/tree.glb",
   grass: "assets/grass.glb",
   rock:  "assets/rock.glb"
 };
-
 
 const TREE_LOD_PATHS = {
   high:   "assets/tree_LOD0.glb",
@@ -18,12 +21,11 @@ const TREE_LOD_PATHS = {
   low:    "assets/tree_LOD2.glb"
 };
 const LOD_PATHS = { tree: TREE_LOD_PATHS, grass: null, rock: null };
-
 const LOD_ENABLED_FOR = { tree: true, grass: false, rock: false };
 
 const LOD_DISTANCES = {
-  high: 50,
-  medium: 100,
+  high: 20,
+  medium: 90,
   low: 120
 };
 const LOD_HIDE_BEYOND_LOW = false;
@@ -34,6 +36,7 @@ const AUTO_LOD = {
   maxVerticesPerPart: 15000
 };
 
+// ---- Distance culling: objects farther than this from the camera are not rendered.
 const MAX_RENDER_DISTANCE = 150;
 
 const TEXTURE_SETTINGS = {
@@ -41,10 +44,8 @@ const TEXTURE_SETTINGS = {
   grass: null,
   rock:  null
 };
-
 const TEXTURE_MAX_SIZE = { high: 2048, medium: 1024, low: 512 };
 const TEXTURE_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'];
-
 
 const USE_PLACEHOLDER_ON_FAILURE = true;
 
@@ -63,18 +64,32 @@ const PLACEMENT = {
   rock:  { seedOffset: 3, minDistance: 2.0,  scale: [0.5, 2.2], tilt: 0.35, yOffset: -0.05, maxTries: 30 }
 };
 
-// ---- Sliders (key must be tree / grass / rock).
 const SCENE_SLIDERS = [
-  { key: 'tree',  label: 'Trees', max: 10000,  step: 100,  initial: 1000 },
-  { key: 'grass', label: 'Grass', max: 100000, step: 1000, initial: 2000 },
-  { key: 'rock',  label: 'Rocks', max: 5000,   step: 50,   initial: 200 }
+  { key: 'tree',  label: 'Trees', max: 10000,  step: 100,  initial: 2500 },
+  { key: 'grass', label: 'Grass', max: 100000, step: 1000, initial: 20000 },
+  { key: 'rock',  label: 'Rocks', max: 5000,   step: 50,   initial: 500 }
 ];
 const SLIDER_DEBOUNCE_MS = 200;          
-
 const OPTIMIZED_PRESET = ['instancedMesh', 'lod', 'frustumCulling', 'distanceCulling', 'shadowOptimization'];
 
+
+const ADAPTIVE = {
+  enabledAtStart: true,
+  targetFps: 50,             
+  ladder: [['instancedMesh'], ['frustumCulling'], ['distanceCulling'], ['lod'], ['shadowOptimization'], ['textureQuality']],
+  binMs: 500,                 
+  settleMs: 2000,            
+  degradeBins: 3,            
+  headroom: 1.05,            
+  recoverSeconds: 20,     
+  probeConfirmSeconds: 5,     
+  probeBackoff: 2,           
+  maxRecoverSeconds: 240,    
+  maxMeshObjectsForProbe: 8000 
+};
+
 // ---- Benchmark
-const BENCHMARK_DURATION_SECONDS = 10;   // measured period (also editable in the UI)
+const BENCHMARK_DURATION_SECONDS = 10;   // measured period 
 const BENCHMARK_WARMUP_SECONDS = 2;      // not measured: lets shaders compile / JIT warm up / culling settle
 const BENCHMARK_CAMERA = {               // identical camera path for every run
   radius: 70, height: 28, lookAtY: 4, startAngleDeg: 0, degreesPerSecond: 12
@@ -82,7 +97,7 @@ const BENCHMARK_CAMERA = {               // identical camera path for every run
 
 // ---- Camera / renderer / look
 const CAMERA_START = { position: [55, 22, 70], target: [0, 4, 0], fov: 60, near: 0.5, far: 1200 };
-const RENDERER_SETTINGS = { antialias: false, maxPixelRatio: 1 };   
+const RENDERER_SETTINGS = { antialias: false, maxPixelRatio: 1 };   // cheap on low-end GPUs
 const FOG = { color: 0xa9c9e0, near: 60, far: 170 };
 const SUN_DIRECTION = new THREE.Vector3(0.5, 0.8, 0.35).normalize();
 const SUN_DISTANCE = 300;
@@ -91,8 +106,8 @@ const SUN_DISTANCE = 300;
 const SHADOW_SETTINGS = {
   baseline: {
     mapSize: 2048, type: 'PCFSoft',
-    casters: { tree: true, grass: true, rock: true },   // everything casts shadows
-    followCamera: false, halfExtent: WORLD_SIZE * 0.65   // one big shadow frustum over the whole world
+    casters: { tree: true, grass: true, rock: true },  
+    followCamera: false, halfExtent: WORLD_SIZE * 0.65   
   },
   optimized: {
     mapSize: 1024, type: 'PCF',
@@ -102,7 +117,9 @@ const SHADOW_SETTINGS = {
 };
 
 const FREEZE_STATIC_MATRICES = true;
+
 const DISABLE_BUILTIN_FRUSTUM_CULLING = true;
+
 const CULL_UPDATE_INTERVAL_MS = 50;
 const CULL_RADIUS_MARGIN = 1.15;         // safety margin on bounding spheres
 
@@ -113,7 +130,7 @@ const FPS_HISTORY_SECONDS = 60;          // length of the FPS graph
 const PAUSE_THRESHOLD_MS = 1000;         // frame gaps longer than this (background tab) are ignored
 
 
-//1. STATE & HELPERS
+//   1. STATE & HELPERS
 
 const ASSET_TYPES = ['tree', 'grass', 'rock'];
 
@@ -154,7 +171,6 @@ function fmtCount(n) {
   return String(Math.round(n));
 }
 
-// Small, fast, seedable PRNG (mulberry32). Math.random() is never used for placement.
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -193,7 +209,6 @@ class ObjectPool {
   idleCount() { let n = 0; for (const l of this.free.values()) n += l.length; return n; }
 }
 const pool = new ObjectPool();
-
 
 //2. UI
 
@@ -296,18 +311,28 @@ function createUI() {
   $('btn-clear').addEventListener('click', () => { benchmarkResults.length = 0; renderResults(); });
 
   $('panel-toggle').addEventListener('click', () => $('dashboard').classList.toggle('collapsed'));
+
+  // --- adaptive engine controls (logic lives in section 10A)
+  $('adaptive-toggle').addEventListener('change', (e) => setAdaptiveEnabled(e.target.checked));
+  $('adaptive-target').addEventListener('change', (e) => {
+    const v = Math.max(10, Math.min(240, Math.round(+e.target.value || ADAPTIVE.targetFps)));
+    e.target.value = v;
+    adaptive.targetFps = v;
+    adaptiveResetWindow(performance.now());
+  });
   updateModeBadge();
 }
 
 function onCountChanged(type, value) {
   state.counts[type] = value;
+  adaptiveSceneChanged();                                          // new workload: forget back-off history
   if (state.ready) scheduleRebuild([type], SLIDER_DEBOUNCE_MS);   // only that layer is rebuilt
 }
 
 function updateModeBadge() {
   const active = OPTIMIZATIONS.filter(o => state.opt[o.key]);
   const badge = $('mode-badge');
-  badge.textContent = `Mode: ${active.length ? 'OPTIMIZED' : 'BASELINE'}`;
+  badge.textContent = `Mode: ${adaptive.enabled ? 'ADAPTIVE \u00b7 ' : ''}${active.length ? 'OPTIMIZED' : 'BASELINE'}`;
   badge.className = 'badge ' + (active.length ? 'optimized' : 'baseline');
   $('active-list').textContent = active.length
     ? 'Active: ' + active.map(o => o.label).join(', ')
@@ -328,7 +353,7 @@ function setStat(id, text) {
   if (el._t !== text) { el.textContent = text; el._t = text; }       // touch the DOM only when the text changed
 }
 
-/** Shows a "working" label, lets the browser paint it, then runs fn (which may block for a while). */
+
 function runBusy(label, fn) {
   ui.busy.textContent = label;
   ui.busy.hidden = false;
@@ -388,8 +413,6 @@ function createScene() {
   // Fog hides the far edge and the point where distance culling removes objects.
   scene.fog = new THREE.Fog(FOG.color, FOG.near, FOG.far);
   if (FREEZE_STATIC_MATRICES) {
-    // The forest never moves, so don't recompute 100k+ world matrices every frame.
-    // We call scene.updateMatrixWorld(true) ourselves after each rebuild.
     scene.matrixAutoUpdate = false;
     scene.matrixWorldAutoUpdate = false;
   }
@@ -443,6 +466,7 @@ function onResize() {
 
 //4. SHADOWS
 
+
 const shadowState = { profile: null, x: Infinity, z: Infinity };
 
 function currentShadowProfile() {
@@ -485,7 +509,7 @@ function moveSunTo(x, z) {
 
 function requestShadowRefresh() { renderer.shadowMap.needsUpdate = true; }
 
-/** Per frame: re-centre the cached shadow frustum only when the view target moved far enough. */
+
 function updateShadowFocus() {
   const p = shadowState.profile;
   if (!p || !p.followCamera) return;
@@ -499,7 +523,6 @@ function updateShadowFocus() {
   }
 }
 
-/** Sets castShadow / receiveShadow / frustumCulled on every mesh in a layer. */
 function applyObjectFlags(layer) {
   const cast = !!currentShadowProfile().casters[layer.type];
   layer.group.traverse((o) => {
@@ -512,7 +535,8 @@ function applyObjectFlags(layer) {
 }
 
 
-//5. ASSET LOADING
+//   5. ASSET LOADING
+
 
 const gltfLoader = new GLTFLoader();
 const loadProgress = new Map();       // url -> 0..1
@@ -694,7 +718,7 @@ function fitAsset(info) {
   info.bounds = { cx: c.x, cy: c.y, cz: c.z, radius: box.getSize(new THREE.Vector3()).length() / 2 };
 }
 
-/** Calls cb(material) once for every distinct material of every asset (and optionally the ground). */
+
 function forEachAssetMaterial(cb, includeGround = false) {
   const seen = new Set();
   const visit = (m) => { if (m && !seen.has(m)) { seen.add(m); cb(m); } };
@@ -708,7 +732,6 @@ function forEachAssetMaterial(cb, includeGround = false) {
   if (includeGround && ground) visit(ground.material);
 }
 
-// ---------- Built-in placeholder models (used only if a GLB fails to load) ----------
 
 function placeholderMaterial(name) {
   if (!placeholderMats[name]) {
@@ -830,8 +853,8 @@ function addPlacement(L) {
 }
 
 
-//7. FOREST LAYERS
-
+// 7. FOREST LAYERS
+ 
 function createForest() {
   for (const type of ASSET_TYPES) layers[type] = createLayer(type);
 }
@@ -854,7 +877,8 @@ function createLayer(type) {
 function isLodActive(type) { return state.opt.lod && LOD_ENABLED_FOR[type] && !!assets[type].lod; }
 function getLevels(type, lodActive) { return lodActive ? assets[type].lod : [assets[type].base]; }
 
-/** Placement matrices, origin positions and culling spheres for every instance of a layer. */
+
+
 function computeLayerData(layer) {
   const { type, count } = layer;
   const L = layouts[type];
@@ -1001,10 +1025,7 @@ function createPlainObject(parts) {
   return group;
 }
 
-/**
- * THREE.LOD holds one child per detail level and switches between them by camera
- * distance (the renderer calls lod.update(camera) for every visible LOD each frame).
- */
+
 function createLODObject(levels) {
   const lod = new THREE.LOD();
   const switchDistances = [0, LOD_DISTANCES.high, LOD_DISTANCES.medium];
@@ -1070,6 +1091,7 @@ function rebuildNow(types) {
     ui.rebuildInfo.textContent = `Last rebuild: ${ms.toFixed(0)} ms (${types.join(', ')})` +
       (state.opt.objectPooling ? ` | pool: reused ${pool.reused}, created ${pool.created}, idle ${pool.idleCount()}` : '');
     if (perf) perf.reset();                      // statistics always describe the current scene
+    adaptiveOnRebuilt();                         // adaptive engine: wait for the new scene to settle
   }));
   return rebuildChain;
 }
@@ -1085,10 +1107,8 @@ function finishRebuild() {
 }
 
 
-/*8. OPTIMIZATIONS
-   Each technique has its own apply function (called when its checkbox changes)
-   and, where it runs every frame, its own update function.
- */
+//8. OPTIMIZATIONS
+
 
 async function setOptimization(key, value) {
   state.opt[key] = value;
@@ -1105,6 +1125,19 @@ async function applyPreset(keys) {
       if (state.opt[def.key] === wanted) continue;
       state.opt[def.key] = wanted;
       $(`opt-${def.key}`).checked = wanted;
+      await def.apply();
+    }
+  });
+  updateModeBadge();
+}
+
+
+async function applyOptChanges(changes) {
+  await runBusy('Adaptive engine: switching techniques…', async () => {
+    for (const def of OPTIMIZATIONS) {
+      if (!(def.key in changes)) continue;
+      state.opt[def.key] = changes[def.key];
+      $(`opt-${def.key}`).checked = changes[def.key];
       await def.apply();
     }
   });
@@ -1381,7 +1414,7 @@ function swapTexture(mat, slot, tex) {
   if (old === tex) return false;
   mat[slot] = tex;
   mat.needsUpdate = true;
-  if (old) old.dispose();                  // free the GPU copy of the texture we no longer use
+  if (old) old.dispose();                  
   return true;
 }
 
@@ -1458,6 +1491,7 @@ function applyShadowOptimization() {
 
 //9. PERFORMANCE MONITOR
 
+
 class PerformanceMonitor {
   constructor() {
     this.cap = 4096;
@@ -1466,6 +1500,7 @@ class PerformanceMonitor {
     this.historyMax = Math.round((FPS_HISTORY_SECONDS * 1000) / HUD_UPDATE_INTERVAL_MS);
     this.reset();
   }
+
 
   reset() {
     this.head = 0; this.count = 0; this.windowSum = 0;
@@ -1548,6 +1583,7 @@ function updatePerformanceMonitor(now) {
   setStat('jsHeap', performance.memory ? (performance.memory.usedJSHeapSize / 1048576).toFixed(0) + ' MB' : 'N/A');
   setStat('gpuMem', 'N/A');        // WebGL does not expose GPU memory usage
   drawFpsGraph();
+  updateAdaptiveStatus();
 }
 
 function drawFpsGraph() {
@@ -1578,7 +1614,7 @@ function drawFpsGraph() {
 }
 
 
-//10. BENCHMARK
+//   10. BENCHMARK
 
 
 const benchmark = {
@@ -1649,6 +1685,7 @@ function endBenchmarkCommon() {
     controls.update();
   }
   setControlsLocked(false);
+  refreshAdaptiveLocks();                 // technique checkboxes stay locked while the adaptive engine is ON
   $('btn-start').textContent = 'Start Benchmark';
   $('bench-progress').hidden = true;
   $('bench-bar').style.width = '0';
@@ -1743,6 +1780,198 @@ function downloadCsv() {
 }
 
 
+
+const adaptive = {
+  enabled: false, targetFps: ADAPTIVE.targetFps,
+  ladder: [], level: 0,
+  recoverMs: [],              // per ladder step: stable time required before trying to switch that step OFF
+  probe: null,                // {step} while a "switch off" trial is running
+  binStart: null, accN: 0, accDt: 0, lastFps: 0,
+  lowBins: 0, goodMs: 0, probeOkMs: 0, settleUntil: 0,
+  lastNow: null, tabHidden: false,   // own frame timing: frames over 1 s are real here unless the tab was hidden
+  t0: performance.now(), history: []
+};
+
+/** A ladder step is skipped when it could not change anything with the loaded assets. */
+function isTechniqueUseful(key) {
+  if (key === 'lod') return ASSET_TYPES.some(t => LOD_ENABLED_FOR[t] && assets[t].lod);
+  if (key === 'textureQuality') {
+    let textured = false;
+    forEachAssetMaterial((m) => { for (const s of TEXTURE_SLOTS) if (m[s]) textured = true; });
+    return textured;
+  }
+  return true;
+}
+
+function initAdaptive() {
+  adaptive.ladder = ADAPTIVE.ladder.map(step => step.filter(isTechniqueUseful)).filter(step => step.length);
+  const used = new Set(adaptive.ladder.flat());
+  const skipped = ADAPTIVE.ladder.flat().filter(k => !used.has(k));
+  if (skipped.length) addMessage(`Adaptive engine skips: ${skipped.join(', ')} (nothing to optimize with the current assets).`);
+  adaptive.targetFps = ADAPTIVE.targetFps;
+  document.addEventListener('visibilitychange', () => { if (document.hidden) adaptive.tabHidden = true; });
+  $('adaptive-toggle').checked = ADAPTIVE.enabledAtStart;
+  $('adaptive-target').value = adaptive.targetFps;
+  setAdaptiveEnabled(ADAPTIVE.enabledAtStart);
+}
+
+/** Highest level whose steps are all already ON (the engine starts from the current checkbox state). */
+function adaptiveLevelFromState() {
+  let level = 0;
+  while (level < adaptive.ladder.length && adaptive.ladder[level].every(k => state.opt[k])) level++;
+  return level;
+}
+
+function setAdaptiveEnabled(on) {
+  adaptive.enabled = on;
+  adaptive.probe = null;
+  adaptive.recoverMs = adaptive.ladder.map(() => ADAPTIVE.recoverSeconds * 1000);
+  adaptiveResetWindow(performance.now());
+  if (on) adaptiveApplyLevel(adaptiveLevelFromState(), 'engine enabled');   // also snaps techniques to the ladder
+  else adaptiveLog('Engine OFF - manual control restored');
+  refreshAdaptiveLocks();
+  updateModeBadge();
+}
+
+function adaptiveResetWindow(now) {
+  adaptive.binStart = null;
+  adaptive.lowBins = 0; adaptive.goodMs = 0; adaptive.probeOkMs = 0;
+  adaptive.settleUntil = now + ADAPTIVE.settleMs;
+}
+
+/** Called after every rebuild (the page was blocked, so the next frames are not representative). */
+function adaptiveOnRebuilt() { adaptiveResetWindow(performance.now()); }
+
+/** A slider moved: the workload changed, so earlier probe failures no longer apply. */
+function adaptiveSceneChanged() {
+  adaptive.probe = null;
+  adaptive.recoverMs = adaptive.ladder.map(() => ADAPTIVE.recoverSeconds * 1000);
+  adaptiveResetWindow(performance.now());
+}
+
+function adaptiveLog(text) {
+  const t = Math.round((performance.now() - adaptive.t0) / 1000);
+  addMessage(`[${t}s] ${text}`);                          // the time stamp keeps repeated events from being de-duplicated
+  while (ui.messages.children.length > 60) ui.messages.removeChild(ui.messages.firstChild);
+  ui.messages.scrollTop = ui.messages.scrollHeight;
+  adaptive.history.push({ t, level: adaptive.level, fps: Math.round(adaptive.lastFps), text });
+  if (adaptive.history.length > 500) adaptive.history.shift();
+}
+
+/** Makes the first `level` ladder steps ON and every later step OFF (only changed techniques are touched). */
+function adaptiveApplyLevel(level, reason) {
+  const want = new Set(adaptive.ladder.slice(0, level).flat());
+  const changes = {};
+  for (const key of adaptive.ladder.flat()) if (state.opt[key] !== want.has(key)) changes[key] = want.has(key);
+  adaptive.level = level;
+  adaptiveResetWindow(performance.now());
+  const label = (k) => OPTIMIZATIONS.find(o => o.key === k).label;
+  const what = Object.keys(changes).map(k => (changes[k] ? '+' : '-') + label(k)).join(' ') || 'no change';
+  adaptiveLog(`Level ${level}/${adaptive.ladder.length}: ${what} (${reason})`);
+  if (Object.keys(changes).length) applyOptChanges(changes);
+}
+
+function adaptiveCanSwitchOff(stepIndex) {
+  if (adaptive.ladder[stepIndex].includes('instancedMesh')) {
+    let objects = 0;
+    for (const t of ASSET_TYPES) objects += state.counts[t] * assets[t].base.parts.length;
+    if (objects > ADAPTIVE.maxMeshObjectsForProbe) return false;
+  }
+  return true;
+}
+
+
+function updateAdaptiveEngine(now) {
+  const a = adaptive;
+  const dt = (a.lastNow === null || a.tabHidden) ? null : now - a.lastNow;   // null = first frame / returning from a hidden tab
+  a.lastNow = now; a.tabHidden = false;
+  if (!a.enabled || !state.ready) return;
+  if (benchmark.running) { adaptiveResetWindow(now); return; }                  // paused: benchmarks need fixed settings
+  if (!ui.busy.hidden || pendingRebuild.size > 0) { adaptiveResetWindow(now); return; }   // a rebuild is running or queued
+  if (dt === null) { a.binStart = null; return; }                               // not a valid frame interval
+  if (now < a.settleUntil) { a.binStart = null; return; }
+
+  if (a.binStart === null) { a.binStart = now; a.accN = 0; a.accDt = 0; }
+  a.accN++; a.accDt += dt;
+  if (now - a.binStart >= ADAPTIVE.binMs) {
+    const fps = (a.accN * 1000) / a.accDt;
+    a.binStart = null;
+    adaptiveOnBin(fps);
+  }
+}
+
+/** The decision rules (see the comment at the top of this section). */
+function adaptiveOnBin(fps) {
+  const a = adaptive;
+  a.lastFps = fps;
+  const low = fps < a.targetFps;
+  const comfortable = fps >= a.targetFps * ADAPTIVE.headroom;
+  a.lowBins = low ? a.lowBins + 1 : 0;
+  a.goodMs = comfortable ? a.goodMs + ADAPTIVE.binMs : 0;
+  if (a.probe && !low) a.probeOkMs += ADAPTIVE.binMs;
+
+  // --- DEGRADE: FPS stayed below the target
+  if (a.lowBins >= ADAPTIVE.degradeBins) {
+    if (a.probe) {                                    // the trial failed: go back and wait longer before retrying
+      const i = a.probe.step;
+      a.recoverMs[i] = Math.min(a.recoverMs[i] * ADAPTIVE.probeBackoff, ADAPTIVE.maxRecoverSeconds * 1000);
+      a.probe = null;
+      adaptiveApplyLevel(a.level + 1, `trial failed at ${fps.toFixed(0)} FPS, retry in ${Math.round(a.recoverMs[i] / 1000)} s`);
+    } else if (a.level < a.ladder.length) {
+      adaptiveApplyLevel(a.level + 1, `${fps.toFixed(0)} FPS below target ${a.targetFps}`);
+    } else {
+      a.lowBins = 0;                                  // everything is already ON: nothing more the engine can do
+    }
+    return;
+  }
+
+  // --- running a trial of the lower level
+  if (a.probe) {
+    if (a.probeOkMs >= ADAPTIVE.probeConfirmSeconds * 1000) {
+      a.recoverMs[a.probe.step] = ADAPTIVE.recoverSeconds * 1000;
+      a.probe = null;
+      adaptiveLog(`Level ${a.level}/${a.ladder.length} accepted at ${fps.toFixed(0)} FPS`);
+    }
+    return;
+  }
+
+  // --- RECOVER: plenty of spare FPS for long enough, so try the next lower level
+  if (a.level > 0 && a.goodMs >= a.recoverMs[a.level - 1]) {
+    if (adaptiveCanSwitchOff(a.level - 1)) {
+      a.probe = { step: a.level - 1 };
+      adaptiveApplyLevel(a.level - 1, `${fps.toFixed(0)} FPS comfortably above target, trying a lower level`);
+    } else {
+      a.goodMs = 0;
+    }
+  }
+}
+
+/** Locks the technique checkboxes and presets while the engine (or a benchmark) is in control. */
+function refreshAdaptiveLocks() {
+  const locked = adaptive.enabled || benchmark.running;
+  for (const key of new Set(adaptive.ladder.flat())) $(`opt-${key}`).disabled = locked;
+  $('btn-baseline').disabled = locked;
+  $('btn-optimized').disabled = locked;
+}
+
+function updateAdaptiveStatus() {
+  const a = adaptive;
+  let text;
+  if (!a.enabled) text = 'Engine OFF: techniques are under manual control.';
+  else if (benchmark.running) text = 'Engine paused during the benchmark.';
+  else {
+    const fps = a.lastFps ? a.lastFps.toFixed(0) : '–';
+    text = `Engine ON | level ${a.level}/${a.ladder.length} | ${fps} FPS (target ${a.targetFps})` +
+      (a.probe ? ' | testing a lower level' : '') +
+      (performance.now() < a.settleUntil ? ' | settling…' : '') +
+      (a.level === a.ladder.length && a.lowBins > 0 ? ' | all techniques ON' : '');
+  }
+  const el = $('adaptive-status');
+  if (el._t !== text) { el.textContent = text; el._t = text; }
+}
+
+
+
 //11. MAIN LOOP & init()
 
 function updateCamera(now) {
@@ -1773,6 +2002,7 @@ function animate(now) {
   // --- measurement (separate from scene code)
   const dt = perf.recordFrame(now, cpuMs);
   benchmarkOnFrame(now, dt, cpuMs);
+  updateAdaptiveEngine(now);
   updatePerformanceMonitor(now);
 }
 
@@ -1808,14 +2038,15 @@ async function init() {
     state.ready = true;
     updateModeBadge();
     $('loading-screen').classList.add('hidden');
+    initAdaptive();
     requestAnimationFrame(animate);
   } catch (err) {
     showFatalError(err);
   }
 }
 
-// Handy for experiments from the browser console, e.g. forestBenchmark.setTextureQuality('low')
-window.forestBenchmark = { state, layers, assets, pool, setTextureQuality, startBenchmark, rebuildScene, resetBenchmark,
+
+window.forestBenchmark = { state, layers, assets, pool, adaptive, setAdaptiveEnabled, setTextureQuality, startBenchmark, rebuildScene, resetBenchmark,
   get renderer() { return renderer; }, get benchmarkResults() { return benchmarkResults; } };
 
 init();

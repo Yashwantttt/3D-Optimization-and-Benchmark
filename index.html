@@ -16,6 +16,7 @@
 </head>
 <body>
 
+  <!-- The WebGL canvas is appended here by main.js -->
   <div id="canvas-container"></div>
 
   <!-- ============ Loading screen ============ -->
@@ -56,9 +57,19 @@
       <div id="asset-status" class="asset-status"></div>
     </section>
 
-    <!-- C. OPTIMIZATION TECHNIQUES -->
+    <!-- C. OPTIMIZATION TECHNIQUES  -->
     <section>
       <h3>Optimization Techniques</h3>
+      <div class="adaptive-box">
+        <label class="check"><input type="checkbox" id="adaptive-toggle" class="lockable" checked>
+          <span><b>Adaptive engine</b> (switches techniques on/off by FPS)</span></label>
+        <div class="row">
+          <label for="adaptive-target">Target FPS</label>
+          <input type="number" id="adaptive-target" class="lockable num" min="10" max="240" step="5" value="50">
+        </div>
+        <div id="adaptive-status" class="muted tiny"></div>
+        <div class="muted tiny">While ON, the technique checkboxes are controlled by the engine. Turn it OFF for manual control and controlled experiments. It pauses during benchmarks.</div>
+      </div>
       <div id="opt-list"></div>
       <div class="row">
         <label for="texture-level">Texture level (when enabled)</label>

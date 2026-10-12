@@ -63,7 +63,7 @@ html, body {
 }
 #dashboard.collapsed { display: none; }
 
-.dash-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dash-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .dash-header h2 { margin: 0; font-size: 15px; }
 
 .badge {
@@ -146,3 +146,7 @@ button.primary:hover:not(:disabled) { background: #247553; }
   #dashboard { padding: 10px 12px 12px; }
   section { margin-top: 10px; padding-top: 8px; }
 }
+
+/* Adaptive engine block */
+.adaptive-box { margin-bottom: 10px; padding: 8px 10px; border: 1px solid #1f5b8f; border-radius: 6px; background: #0e1c2b; }
+.adaptive-box .check { margin-top: 0; }
